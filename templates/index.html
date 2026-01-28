@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>StockSpot • Smart Retail</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- TensorFlow.js (optional local heuristic) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+  <!-- Firebase (Compat for simplicity in single file) -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-database-compat.js"></script>
+
+<link rel="stylesheet" href="/static/styles.css">
+
+</head>
+<body>
+  <!-- Navbar -->
+  <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <div class="container-fluid">
+      <a class="navbar-brand fw-bold" href="#">StockSpot</a>
+      <div class="collapse navbar-collapse">
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item"><a class="nav-link" href="#home">Home</a></li>
+          <li class="nav-item"><a class="nav-link" href="#settings">Settings</a></li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Home -->
+  <section id="home" class="container mt-4">
+    <div class="card-section">
+      <h1 class="mb-2">Smart Retail: Real-time Inventory & Shelf Monitoring</h1>
+      <p class="lead">AI-powered shelf detection, instant alerts, and live inventory management for small and medium retailers.</p>
+      <div class="row g-2 mt-2">
+        <div class="col-sm-6 col-md-3"><a href="#inventory" class="btn btn-success w-100">Inventory</a></div>
+        <div class="col-sm-6 col-md-3"><a href="#shelves" class="btn btn-info w-100">Shelves</a></div>
+        <div class="col-sm-6 col-md-3"><a href="#camera" class="btn btn-warning w-100">Camera</a></div>
+        <div class="col-sm-6 col-md-3"><a href="#alerts" class="btn btn-danger w-100">Alerts</a></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Inventory Dashboard -->
+  <section id="inventory" class="container mt-4">
+    <div class="card-section">
+      <div class="d-flex align-items-center justify-content-between flex-wrap mb-3">
+        <h2 class="m-0">Inventory</h2>
+        <div class="d-flex gap-2">
+          <input id="searchInput" class="form-control small-input" placeholder="Search products">
+          <select id="sortSelect" class="form-select small-input">
+            <option value="">Sort by...</option>
+            <option value="nameAsc">Name ↑</option>
+            <option value="nameDesc">Name ↓</option>
+            <option value="qtyAsc">Quantity ↑</option>
+            <option value="qtyDesc">Quantity ↓</option>
+            <option value="priceAsc">Price ↑</option>
+            <option value="priceDesc">Price ↓</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Add Item Form -->
+      <form id="addItemForm" class="row g-2 mb-3">
+        <div class="col-md-4">
+          <input id="itemName" class="form-control" placeholder="Product Name" required>
+        </div>
+        <div class="col-md-3">
+          <input id="itemQty" type="number" min="0" class="form-control" placeholder="Quantity" required>
+        </div>
+        <div class="col-md-3">
+          <input id="itemPrice" type="number" min="0" step="0.01" class="form-control" placeholder="Price" required>
+        </div>
+        <div class="col-md-2">
+          <button type="submit" class="btn btn-primary w-100">Add Item</button>
+        </div>
+      </form>
+
+      <div class="table-responsive">
+        <table class="table table-striped align-middle">
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Quantity</th>
+              <th>Price</th>
+              <th>Status</th>
+              <th style="min-width:220px;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="inventoryBody"></tbody>
+        </table>
+      </div>
+
+      <div class="mt-3" style="min-height: 260px;">
+        <canvas id="stockChart"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <!-- Shelf Monitoring -->
+  <section id="shelves" class="container mt-4">
+    <div class="card-section">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <h2 class="m-0">Shelf monitoring</h2>
+        <div class="d-flex gap-2">
+          <button id="refreshShelves" class="btn btn-outline-primary">Simulate update</button>
+          <button id="resolveAlerts" class="btn btn-outline-success">Resolve alerts</button>
+        </div>
+      </div>
+      <p class="muted">Green: stocked • Orange: low • Red: empty • Blue: misplaced</p>
+      <div id="shelfGrid" class="row"></div>
+    </div>
+  </section>
+
+  <!-- Camera capture and analysis -->
+  <section id="camera" class="container mt-4">
+    <div class="card-section">
+      <h2>Camera</h2>
+      <p class="muted">Capture shelf images, analyze for empty/misplaced items, and auto-update shelf status.</p>
+
+      <div class="row g-3">
+        <div class="col-md-6 camera-box">
+          <video id="video" autoplay playsinline class="w-100 bg-dark" style="aspect-ratio:16/9;"></video>
+        </div>
+        <div class="col-md-6">
+          <canvas id="canvas" class="w-100" style="aspect-ratio:16/9;"></canvas>
+          <div class="d-flex gap-2 mt-3">
+            <button id="startCam" class="btn btn-secondary">Start camera</button>
+            <button id="capture" class="btn btn-primary">Capture & analyze</button>
+          </div>
+          <div class="mt-3 d-flex align-items-center gap-2">
+            <label class="form-label m-0">Analysis mode:</label>
+            <select id="analysisMode" class="form-select small-input">
+              <option value="local">Local heuristic</option>
+              <option value="cloud">Cloud function</option>
+            </select>
+          </div>
+          <div class="mt-3">
+            <label class="form-label">Shelf ID</label>
+            <input id="shelfIdInput" class="form-control small-input" value="A1">
+          </div>
+          <div id="analysisResult" class="mt-3"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Alerts -->
+  <section id="alerts" class="container mt-4">
+    <div class="card-section">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <h2 class="m-0">Alerts</h2>
+        <button id="clearAlerts" class="btn btn-outline-danger">Clear all</button>
+      </div>
+      <ul id="alertsList" class="list-group"></ul>
+    </div>
+  </section>
+
+  <!-- Settings -->
+  <section id="settings" class="container mt-4">
+    <div class="card-section">
+      <h2>Settings</h2>
+      <p class="muted">Configure Firebase and Cloud Function (optional). If Firebase is left blank, the app uses localStorage.</p>
+
+      <div class="row g-3">
+        <div class="col-md-6">
+          <h5>Firebase configuration</h5>
+          <div class="row g-2">
+            <div class="col-12"><input id="cfgApiKey" class="form-control" placeholder="apiKey"></div>
+            <div class="col-12"><input id="cfgAuthDomain" class="form-control" placeholder="authDomain"></div>
+            <div class="col-12"><input id="cfgDatabaseURL" class="form-control" placeholder="databaseURL"></div>
+            <div class="col-12"><input id="cfgProjectId" class="form-control" placeholder="projectId"></div>
+            <div class="col-12"><input id="cfgStorageBucket" class="form-control" placeholder="storageBucket"></div>
+            <div class="col-12"><input id="cfgMessagingSenderId" class="form-control" placeholder="messagingSenderId"></div>
+            <div class="col-12"><input id="cfgAppId" class="form-control" placeholder="appId"></div>
+            <div class="col-12 d-flex gap-2 mt-2">
+              <button id="applyFirebase" class="btn btn-primary">Apply</button>
+              <button id="clearFirebase" class="btn btn-outline-secondary">Clear</button>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <h5>Cloud function endpoint</h5>
+          <input id="cfgFunctionUrl" class="form-control" placeholder="https://REGION-PROJECT.cloudfunctions.net/analyzeShelf">
+          <button id="applyFunctionUrl" class="btn btn-primary mt-2">Apply</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="sticky-footer">© 2026 DEADLOCKS • StockSpot Hackathon Demo</div>
+
+  <!-- App Script -->
+  <script>
+    // ---------------------------------
+    // Config + storage (Firebase or localStorage fallback)
+    // ---------------------------------
+    let firebaseReady = false;
+    let db = null;
+    let invRef = null, shelvesRef = null, alertsRef = null;
+    let CLOUD_FUNCTION_ENDPOINT = localStorage.getItem("functionUrl") || "";
+
+    const savedCfg = JSON.parse(localStorage.getItem("firebaseConfig") || "{}");
+    if (Object.keys(savedCfg).length) initFirebase(savedCfg);
+
+    document.getElementById("applyFunctionUrl").addEventListener("click", () => {
+      CLOUD_FUNCTION_ENDPOINT = document.getElementById("cfgFunctionUrl").value.trim();
+      localStorage.setItem("functionUrl", CLOUD_FUNCTION_ENDPOINT);
+      pushAlert("Cloud function URL updated", "info");
+    });
+
+    document.getElementById("applyFirebase").addEventListener("click", () => {
+      const cfg = {
+        apiKey: document.getElementById("cfgApiKey").value.trim(),
+        authDomain: document.getElementById("cfgAuthDomain").value.trim(),
+        databaseURL: document.getElementById("cfgDatabaseURL").value.trim(),
+        projectId: document.getElementById("cfgProjectId").value.trim(),
+        storageBucket: document.getElementById("cfgStorageBucket").value.trim(),
+        messagingSenderId: document.getElementById("cfgMessagingSenderId").value.trim(),
+        appId: document.getElementById("cfgAppId").value.trim()
+      };
+      localStorage.setItem("firebaseConfig", JSON.stringify(cfg));
+      initFirebase(cfg);
+    });
+
+    document.getElementById("clearFirebase").addEventListener("click", () => {
+      localStorage.removeItem("firebaseConfig");
+      firebaseReady = false;
+      db = null; invRef = null; shelvesRef = null; alertsRef = null;
+      pushAlert("Firebase cleared. Using localStorage.", "warn");
+      initLocalDataIfEmpty();
+      syncLocalToUI();
+    });
+
+    function initFirebase(cfg) {
+      try {
+        if (!firebaseReady) firebase.initializeApp(cfg);
+        db = firebase.database();
+        invRef = db.ref("inventory");
+        shelvesRef = db.ref("shelves");
+        alertsRef = db.ref("alerts");
+        firebaseReady = true;
+        pushAlert("Firebase connected", "info");
+        seedIfEmpty();
+        attachRealtime();
+      } catch (e) {
+        pushAlert("Firebase init failed. Using localStorage.", "danger");
+        firebaseReady = false;
+        initLocalDataIfEmpty();
+        syncLocalToUI();
+      }
+    }
+
+    // ---------------------------------
+    // Inventory data and chart
+    // ---------------------------------
+    const tbody = document.getElementById("inventoryBody");
+    const searchInput = document.getElementById("searchInput");
+    const sortSelect = document.getElementById("sortSelect");
+    const chartEl = document.getElementById("stockChart");
+
+    let inventory = [];
+    const defaultInventory = [
+      { name: "Milk 1L", quantity: 8, price: 75 },
+      { name: "Bread", quantity: 42, price: 55 },
+      { name: "Basmati Rice 5kg", quantity: 0, price: 499 },
+      { name: "Chocolate 70%", quantity: 5, price: 149 },
+      { name: "Olive Oil 1L", quantity: 23, price: 699 }
+    ];
+
+    let stockChart = new Chart(chartEl, {
+      type: "bar",
+      data: { labels: [], datasets: [{ label: "Quantity", data: [], backgroundColor: [] }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+
+    function renderInventory(data) {
+      tbody.innerHTML = "";
+      data.forEach((item, index) => {
+        const status = item.quantity === 0 ? "Out" : item.quantity <= 10 ? "Low" : "OK";
+        const badgeClass = item.quantity === 0 ? "bg-danger"
+          : item.quantity <= 10 ? "bg-warning text-dark" : "bg-success";
+        tbody.insertAdjacentHTML("beforeend", `
+          <tr>
+            <td>${item.name}</td>
+            <td>${item.quantity}</td>
+            <td>₹${Number(item.price).toFixed(2)}</td>
+            <td><span class="badge ${badgeClass} badge-pill">${status}</span></td>
+            <td class="d-flex flex-wrap gap-2">
+              <button class="btn btn-sm btn-success" onclick="updateStock(${index}, 1)">+1</button>
+              <button class="btn btn-sm btn-warning" onclick="updateStock(${index}, -1)">-1</button>
+              <button class="btn btn-sm btn-outline-secondary" onclick="editItem(${index})">Edit</button>
+              <button class="btn btn-sm btn-danger" onclick="removeItem(${index})">Remove</button>
+            </td>
+          </tr>
+        `);
+      });
+      updateChart(data);
+    }
+
+    function updateChart(data) {
+      stockChart.data.labels = data.map(i => i.name);
+      stockChart.data.datasets[0].data = data.map(i => i.quantity);
+      stockChart.data.datasets[0].backgroundColor = data.map(i =>
+        i.quantity === 0 ? "#dc2626" : i.quantity <= 10 ? "#f59e0b" : "#16a34a"
+      );
+      stockChart.update();
+    }
+
+    // Sorting and search
+    searchInput.addEventListener("input", () => syncInventoryUI());
+    sortSelect.addEventListener("change", () => syncInventoryUI());
+    function sorted(data) {
+      const v = sortSelect.value;
+      const copy = data.slice();
+      if (v === "nameAsc") copy.sort((a,b)=>a.name.localeCompare(b.name));
+      else if (v === "nameDesc") copy.sort((a,b)=>b.name.localeCompare(a.name));
+      else if (v === "qtyAsc") copy.sort((a,b)=>a.quantity-b.quantity);
+      else if (v === "qtyDesc") copy.sort((a,b)=>b.quantity-a.quantity);
+      else if (v === "priceAsc") copy.sort((a,b)=>a.price-b.price);
+      else if (v === "priceDesc") copy.sort((a,b)=>b.price-a.price);
+      return copy;
+    }
+    function filtered(data) {
+      const q = searchInput.value.toLowerCase();
+      return data.filter(i => i.name.toLowerCase().includes(q));
+    }
+    function syncInventoryUI() {
+      const data = filtered(sorted(inventory));
+      renderInventory(data);
+    }
+
+    // CRUD actions
+    document.getElementById("addItemForm").addEventListener("submit", e => {
+      e.preventDefault();
+      const name = document.getElementById("itemName").value.trim();
+      const qty = Math.max(0, parseInt(document.getElementById("itemQty").value));
+      const price = Math.max(0, parseFloat(document.getElementById("itemPrice").value));
+      inventory.push({ name, quantity: qty, price });
+      saveInventory(inventory);
+      e.target.reset();
+      pushAlert(`Added item: ${name}`, "info");
+    });
+    window.updateStock = (index, change) => {
+      if (!inventory[index]) return;
+      inventory[index].quantity = Math.max(0, (inventory[index].quantity || 0) + change);
+      saveInventory(inventory);
+      const label = change > 0 ? "Restocked" : "Reduced";
+      pushAlert(`${label} ${inventory[index].name} → ${inventory[index].quantity}`, "warn");
+      if (inventory[index].quantity === 0) pushAlert(`${inventory[index].name} is out of stock`, "danger");
+      if (inventory[index].quantity > 0 && inventory[index].quantity <= 5) pushAlert(`${inventory[index].name} is low (${inventory[index].quantity})`, "warn");
+    };
+    window.removeItem = (index) => {
+      const item = inventory[index];
+      if (!item) return;
+      inventory.splice(index, 1);
+      saveInventory(inventory);
+      pushAlert(`Removed: ${item.name}`, "danger");
+    };
+    window.editItem = (index) => {
+      const item = inventory[index];
+      if (!item) return;
+      const newName = prompt("Edit name:", item.name) ?? item.name;
+      const newQty = parseInt(prompt("Edit quantity:", item.quantity));
+      const newPrice = parseFloat(prompt("Edit price:", item.price));
+      inventory[index] = {
+        name: newName,
+        quantity: isNaN(newQty) ? item.quantity : Math.max(0, newQty),
+        price: isNaN(newPrice) ? item.price : Math.max(0, newPrice)
+      };
+      saveInventory(inventory);
+      pushAlert(`Updated: ${newName}`, "info");
+    };
+
+    // Save helpers
+    function saveInventory(arr) {
+      if (firebaseReady && invRef) invRef.set(arr);
+      else {
+        localStorage.setItem("inventory", JSON.stringify(arr));
+        inventory = arr;
+        syncInventoryUI();
+      }
+    }
+
+    // ---------------------------------
+    // Shelves
+    // ---------------------------------
+    const shelfGrid = document.getElementById("shelfGrid");
+    let shelves = [];
+    const defaultShelves = [
+      { id: "A1", name: "Bakery", status: "ok", lastUpdated: Date.now() },
+      { id: "A2", name: "Dairy", status: "low", lastUpdated: Date.now() },
+      { id: "B1", name: "Grains", status: "empty", lastUpdated: Date.now() },
+      { id: "B2", name: "Snacks", status: "ok", lastUpdated: Date.now() }
+    ];
+
+    function timeAgo(ts) {
+      const diff = Math.floor((Date.now() - ts) / 1000);
+      if (diff < 60) return `${diff}s ago`;
+      const m = Math.floor(diff / 60);
+      if (m < 60) return `${m}m ago`;
+      const h = Math.floor(m / 60);
+      return `${h}h ago`;
+    }
+
+    function renderShelves() {
+      shelfGrid.innerHTML = "";
+      shelves.forEach(s => {
+        const colorClass =
+          s.status === "ok" ? "status-ok" :
+          s.status === "low" ? "status-low" :
+          s.status === "empty" ? "status-empty" : "status-misplaced";
+        shelfGrid.insertAdjacentHTML("beforeend", `
+          <div class="col-md-3 mb-3">
+            <div class="card status-card ${colorClass}">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                  <h5 class="m-0">${s.name}</h5>
+                  <span class="badge bg-dark">${s.id}</span>
+                </div>
+                <p class="m-0 mt-2">Status: <strong>${s.status}</strong></p>
+                <small class="muted">Updated: ${timeAgo(s.lastUpdated || Date.now())}</small>
+              </div>
+            </div>
+          </div>
+        `);
+      });
+    }
+
+    document.getElementById("refreshShelves").addEventListener("click", () => {
+      const statuses = ["ok","low","empty","misplaced"];
+      const updated = (shelves || []).map(s => ({
+        ...s,
+        status: statuses[Math.floor(Math.random()*statuses.length)],
+        lastUpdated: Date.now()
+      }));
+      saveShelves(updated);
+      pushAlert("Shelves updated", "info");
+    });
+
+    function saveShelves(arr) {
+      if (firebaseReady && shelvesRef) shelvesRef.set(arr);
+      else {
+        localStorage.setItem("shelves", JSON.stringify(arr));
+        shelves = arr;
+        renderShelves();
+      }
+    }
+
+    // ---------------------------------
+    // Alerts
+    // ---------------------------------
+    const alertsList = document.getElementById("alertsList");
+    let alerts = [];
+
+    function renderAlerts() {
+      alertsList.innerHTML = "";
+      (alerts || []).slice().reverse().forEach((a, idx) => {
+        const typeClass =
+          a.type === "danger" ? "list-group-item-danger" :
+          a.type === "warn" ? "list-group-item-warning" :
+          a.type === "info" ? "list-group-item-info" : "list-group-item-secondary";
+        alertsList.insertAdjacentHTML("beforeend", `
+          <li class="list-group-item ${typeClass} d-flex justify-content-between align-items-center">
+            <div>
+              <strong>${a.title}</strong><br>
+              <small class="muted">${new Date(a.ts).toLocaleString()}</small>
+            </div>
+            <button class="btn btn-sm btn-outline-dark" onclick="dismissAlert(${alerts.length - 1 - idx})">Dismiss</button>
+          </li>
+        `);
+      });
+    }
+    function pushAlert(title, type="info") {
+      const next = (alerts || []).concat([{ title, type, ts: Date.now() }]);
+      if (firebaseReady && alertsRef) alertsRef.set(next);
+      else {
+        alerts = next;
+        localStorage.setItem("alerts", JSON.stringify(alerts));
+        renderAlerts();
+      }
+    }
+    window.dismissAlert = (index) => {
+      alerts.splice(index, 1);
+      if (firebaseReady && alertsRef) alertsRef.set(alerts);
+      else {
+        localStorage.setItem("alerts", JSON.stringify(alerts));
+        renderAlerts();
+      }
+    };
+    document.getElementById("resolveAlerts").addEventListener("click", () => {
+      alerts = alerts.filter(a => a.type !== "danger" && a.type !== "warn");
+      if (firebaseReady && alertsRef) alertsRef.set(alerts);
+      else { localStorage.setItem("alerts", JSON.stringify(alerts)); renderAlerts(); }
+    });
+    document.getElementById("clearAlerts").addEventListener("click", () => {
+      alerts = [];
+      if (firebaseReady && alertsRef) alertsRef.set(alerts);
+      else { localStorage.setItem("alerts", "[]"); renderAlerts(); }
+    });
+
+    // ---------------------------------
+    // Realtime attach (Firebase or local)
+    // ---------------------------------
+    function seedIfEmpty() {
+      if (!firebaseReady) return;
+      invRef.once("value").then(s => { if (!s.exists()) invRef.set(defaultInventory); });
+      shelvesRef.once("value").then(s => { if (!s.exists()) shelvesRef.set(defaultShelves); });
+      alertsRef.once("value").then(s => { if (!s.exists()) alertsRef.set([]); });
+    }
+
+    function attachRealtime() {
+      if (!firebaseReady) return;
+      invRef.on("value", snap => { inventory = snap.val() || []; syncInventoryUI(); });
+      shelvesRef.on("value", snap => { shelves = snap.val() || []; renderShelves(); });
+      alertsRef.on("value", snap => { alerts = snap.val() || []; renderAlerts(); });
+    }
+
+    function initLocalDataIfEmpty() {
+      if (!localStorage.getItem("inventory")) localStorage.setItem("inventory", JSON.stringify(defaultInventory));
+      if (!localStorage.getItem("shelves")) localStorage.setItem("shelves", JSON.stringify(defaultShelves));
+      if (!localStorage.getItem("alerts")) localStorage.setItem("alerts", "[]");
+    }
+    function syncLocalToUI() {
+      inventory = JSON.parse(localStorage.getItem("inventory") || "[]");
+      shelves = JSON.parse(localStorage.getItem("shelves") || "[]");
+      alerts = JSON.parse(localStorage.getItem("alerts") || "[]");
+      syncInventoryUI(); renderShelves(); renderAlerts();
+    }
+
+    // Initialize fallback if Firebase not set
+    if (!firebaseReady) { initLocalDataIfEmpty(); syncLocalToUI(); }
+
+    // ---------------------------------
+    // Camera + analysis
+    // ---------------------------------
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const analysisResult = document.getElementById("analysisResult");
+    const analysisMode = document.getElementById("analysisMode");
+    const shelfIdInput = document.getElementById("shelfIdInput");
+
+    document.getElementById("startCam").addEventListener("click", async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+        video.srcObject = stream;
+      } catch (e) {
+        pushAlert("Camera access failed", "danger");
+      }
+    });
+
+    function captureDataUrl() {
+      const w = video.videoWidth || 640, h = video.videoHeight || 360;
+      canvas.width = w; canvas.height = h;
+      const ctx2d = canvas.getContext("2d");
+      ctx2d.drawImage(video, 0, 0, w, h);
+      return canvas.toDataURL("image/jpeg", 0.92);
+    }
+
+    document.getElementById("capture").addEventListener("click", async () => {
+      const shelfId = shelfIdInput.value.trim() || "A1";
+      analysisResult.innerHTML = `<div class="alert alert-secondary">Analyzing...</div>`;
+      const dataUrl = captureDataUrl();
+
+      try {
+        let result = null;
+        if (analysisMode.value === "cloud" && CLOUD_FUNCTION_ENDPOINT) {
+          const res = await fetch(CLOUD_FUNCTION_ENDPOINT, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image: dataUrl, shelfId })
+          });
+          result = await res.json();
+        } else {
+          // Local heuristic: darker frames and low edge contrast → "empty", random small chance "misplaced"
+          const status = localHeuristicStatus();
+          result = { shelfId, status, confidence: 0.6, objects: [] };
+        }
+
+        analysisResult.innerHTML = `
+          <div class="alert alert-info">
+            Status: <strong>${result.status}</strong>
+            ${result.confidence ? `• Confidence: ${(result.confidence*100).toFixed(1)}%` : ""}
+            ${result.objects?.length ? `<br>Objects: ${result.objects.map(o=>o.name).join(", ")}` : ""}
+          </div>
+        `;
+
+        // Update shelf status
+        const updated = (shelves || []).map(s => s.id === shelfId ? { ...s, status: result.status, lastUpdated: Date.now() } : s);
+        saveShelves(updated);
+
+        // Alerts
+        if (result.status === "empty") pushAlert(`Shelf ${shelfId} is empty`, "danger");
+        if (result.status === "misplaced") pushAlert(`Misplaced items detected on ${shelfId}`, "warn");
+      } catch (e) {
+        analysisResult.innerHTML = `<div class="alert alert-danger">Analysis failed: ${e.message}</div>`;
+      }
+    });
+
+    function localHeuristicStatus() {
+      const ctx2d = canvas.getContext("2d");
+      const imgData = ctx2d.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+      let sum = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        sum += 0.2126 * data[i] + 0.7152 * data[i+1] + 0.0722 * data[i+2];
+      }
+      const avg = sum / (data.length / 4);
+      // Random slight chance of "misplaced"
+      if (Math.random() < 0.15) return "misplaced";
+      if (avg < 45) return "empty";
+      if (avg < 75) return "low";
+      return "ok";
+    }
+  </script>
+</body>
+</html>

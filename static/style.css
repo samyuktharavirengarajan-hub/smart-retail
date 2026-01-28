@@ -1,0 +1,14 @@
+body { background: #f8fafc; }
+.nav-link { font-weight: 500; }
+.card-section { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1rem; }
+.status-card { border-radius: 10px; color: white; }
+.status-ok { background: #16a34a; }
+.status-low { background: #f59e0b; }
+.status-empty { background: #dc2626; }
+.status-misplaced { background: #0ea5e9; }
+.badge-pill { border-radius: 999px; }
+.muted { color: #64748b; }
+.table thead th { white-space: nowrap; }
+.camera-box video, .camera-box canvas { max-width: 100%; border-radius: 10px; }
+.small-input { max-width: 140px; }
+.sticky-footer { text-align: center; color: #64748b; margin: 2rem 0 1rem; }
