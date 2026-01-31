@@ -1,42 +1,64 @@
+import streamlit as st
+import httpx
 import os
-import http
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
-app = FastAPI()
+# ========== CONFIG ==========
+st.set_page_config(page_title="Gemini Chat App", page_icon="🤖")
 
-# Serve HTML files
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+# Use environment variable for safety
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Your Gemini API key
-GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"  # <--- Replace this
+# ========== UI ==========
+st.title("🤖 Gemini AI Chat")
+st.write("Ask me anything!")
 
-# Home page
-@app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+# Store chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-# Gemini API endpoint
-@app.post("/gemini")
-async def gemini_api(data: dict):
-    user_input = data.get("message", "")
+# Display previous messages
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-    # Make request to Gemini API
-    async with http.AsyncClient() as client:
-        response = await client.post(
-            "https://api.gemini.com/v1/generate",  # Replace with real Gemini endpoint
-            headers={
-                "Authorization": f"Bearer {GEMINI_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "prompt": user_input,
-                "max_tokens": 100  # Example parameter
-            }
-        )
+# User input
+user_input = st.chat_input("Type your message here...")
+
+# ========== GEMINI CALL FUNCTION ==========
+async def call_gemini(prompt):
+    url = "https://api.gemini.com/v1/generate"  # Replace with real endpoint
+
+    headers = {
+        "Authorization": f"Bearer {GEMINI_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "prompt": prompt,
+        "max_tokens": 100
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, headers=headers, json=payload)
+        data = response.json()
+
+    return data.get("text", "No response from Gemini")
+
+# ========== HANDLE CHAT ==========
+if user_input:
+    # Show user message
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    with st.chat_message("user"):
+        st.markdown(user_input)
+
+    # Get Gemini response
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            reply = st.run(call_gemini(user_input))
+            st.markdown(reply)
+
+    st.session_state.messages.append({"role": "assistant", "content": reply})
+
         result = response.json()
 
     # Return Gemini reply
